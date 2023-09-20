@@ -44,13 +44,23 @@ def command_env_wrapper(conanfile, command, envfiles, envfiles_folder, scope="bu
     active = conanfile.conf.get("tools.microsoft.bash:active", check_type=bool)
     subsystem = conanfile.conf.get("tools.microsoft.bash:subsystem")
 
-    if platform.system() == "Windows" and (
-            (conanfile.win_bash and scope == "build") or
+    if platform.system() == "Windows":
+        use_environment_wrapper = True
+        if ((conanfile.win_bash and scope == "build") or
             (conanfile.win_bash_run and scope == "run")):
-        if subsystem is None:
-            raise ConanException("win_bash/win_bash_run defined but no "
-                                 "tools.microsoft.bash:subsystem")
-        if active:
+            if subsystem is None:
+                raise ConanException("win_bash/win_bash_run defined but no "
+                                     "tools.microsoft.bash:subsystem")
+            use_environment_wrapper = active
+
+        if use_environment_wrapper:
+            # Remove ./ at the beginning of commands on Windows to avoid
+            # "".' is not recognized as an internal or external command" errors generated
+            # by the Windows shell. This is needed because when conan runs in subsytems
+            # like MSYS2, it can generate paths like ./test_package from recipe commands like
+            #  self.run(os.path.join(self.cpp.build.bindir, "test_package"), env="conanrun")
+            if platform.system() == "Windows" and command.startswith("./"):
+                command = command[2:]
             wrapped_cmd = environment_wrap_command(envfiles, envfiles_folder, command)
         else:
             wrapped_cmd = _windows_bash_wrapper(conanfile, command, envfiles, envfiles_folder)
@@ -74,7 +84,7 @@ def _windows_bash_wrapper(conanfile, command, env, envfiles_folder):
                              "needed to run commands in a Windows subsystem")
     env = env or []
     if subsystem == MSYS2:
-        # Configure MSYS2 to inherith the PATH
+        # Configure MSYS2 to inherit the PATH
         msys2_mode_env = Environment()
         _msystem = {"x86": "MINGW32"}.get(conanfile.settings.get_safe("arch"), "MINGW64")
         # https://www.msys2.org/wiki/Launchers/ dictates that the shell should be launched with
